@@ -1,0 +1,23 @@
+settings:
+  macos:
+    - domain: NSGlobalDomain
+      key: AppleShowAllExtensions
+      value: "true"
+      type: bool
+    - domain: com.apple.finder
+      key: AppleShowAllFiles
+      value: "true"
+      type: bool
+    - domain: com.apple.dock
+      key: expose-animation-duration
+      value: "0.1"
+      type: float
+    - domain: NSGlobalDomain
+      key: KeyRepeat
+      value: "1"
+      type: int
+    - domain: com.apple.finder
+      key: ShowPathbar
+      value: "true"
+      type: bool
+

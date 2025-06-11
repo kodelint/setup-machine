@@ -1,0 +1,99 @@
+aliases:
+  shell: zsh
+  entries:
+    - name: code
+      value: cd $HOME/Documents/github/
+    - name: g
+      value: git
+    - name: gs
+      value: g status
+    - name: ga
+      value: g add
+    - name: gaa
+      value: g add --all
+    - name: gap
+      value: g add -p
+    - name: gc
+      value: g commit
+    - name: gcm
+      value: g commit -m
+    - name: gca
+      value: g commit --amend
+    - name: gco
+      value: g checkout
+    - name: gsw
+      value: g switch
+    - name: gswc
+      value: g switch -c
+    - name: gb
+      value: g branch
+    - name: gbd
+      value: g branch -d
+    - name: gbr
+      value: g branch -r
+    - name: gm
+      value: g merge
+    - name: grb
+      value: g rebase
+    - name: gri
+      value: g rebase -i
+    - name: gst
+      value: g stash
+    - name: gstp
+      value: g stash pop
+    - name: gr
+      value: g restore
+    - name: grs
+      value: g reset
+    - name: grsh
+      value: g reset --hard
+    - name: gpl
+      value: g pull
+    - name: gp
+      value: g push
+    - name: gpf
+      value: g push --force-with-lease
+    - name: gf
+      value: g fetch
+    - name: gfp
+      value: g fetch -p
+    - name: grv
+      value: g remote -v
+    - name: gl
+      value: g log --oneline --graph --decorate --all
+    - name: glog
+      value: g log --pretty=format:'%C(auto)%h%d %s %C(blue)(%cr) %C(green)<%an>' --graph --all
+    - name: gld
+      value: g log --pretty=format:'%C(yellow)%h%Creset %ad %Cgreen[%an]%Creset %C(auto)%d%Creset %s' --date=short --graph
+    - name: ginfo
+      value: g log --pretty=format:'%C(yellow)%h%Creset | %s | %C(green)%an%Creset | %C(cyan)%cr%Creset'
+    - name: glf
+      value: g log --follow --pretty=format:'%C(yellow)%h%Creset %s %C(cyan)(%cr) %C(green)<%an>'
+    - name: glp
+      value: git log -p
+    - name: gls
+      value: g log --stat
+    - name: gd
+      value: g diff
+    - name: gds
+      value: g diff --staged
+    - name: gsh
+      value: g show
+    - name: gcp
+      value: g cherry-pick
+    - name: grv
+      value: g revert
+    - name: gcln
+      value: g clean -fd
+    - name: gwip
+      value: g stash push -m "WIP"
+    - name: gundo
+      value: g reset HEAD~1
+    - name: gbl
+      value: g blame
+    - name: gt
+      value: g tag
+    - name: gwho
+      value: g shortlog -sne
+    - name: cat
+      value: bat

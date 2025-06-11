@@ -1,0 +1,16 @@
+tools:
+  - name: cli
+    version: "2.74.0"
+    source: github
+    repo: cli/cli
+    tag: v2.74.0
+  - name: fzf
+    version: "0.62.0"
+    source: github
+    repo: junegunn/fzf
+    tag: v0.62.0
+  - name: bat
+    version: "0.25.0"
+    source: github
+    repo: sharkdp/bat
+    tag: v0.25.0
