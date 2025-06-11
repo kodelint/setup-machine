@@ -3,7 +3,6 @@
 > ⚙️ Automate your macOS developer environment setup with Go
 
 [![Go](https://img.shields.io/badge/go-1.20-blue.svg)](https://golang.org)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![GitHub release](https://img.shields.io/github/release/yourname/setup-machine.svg)](https://github.com/yourname/setup-machine/releases)
 
 `setup-machine` is a powerful, modular, and version-aware CLI tool to automate the setup of your macOS developer environment. Written in Go, it uses a declarative YAML configuration to install CLI tools, manage shell aliases, and apply macOS system settings — all while keeping track of state for safe, idempotent operations.
