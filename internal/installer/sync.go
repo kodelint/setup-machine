@@ -191,6 +191,19 @@ func SyncAliases(aliases config.Aliases) {
 	}
 	defer file.Close()
 
+	// Write raw configs if provided
+	for _, line := range aliases.RawConfigs {
+		trimmed := strings.TrimSpace(line)
+		if _, found := existing[trimmed]; found {
+			logger.Debug("[DEBUG] Raw config already exists: %s\n", trimmed)
+			continue
+		}
+		if _, err := file.WriteString(line + "\n"); err != nil {
+			logger.Error("[ERROR] Failed to write raw config line: %s: %v\n", line, err)
+		} else {
+			logger.Info("[INFO] Added raw shell config: %s\n", line)
+		}
+	}
 	// Iterate over all aliases defined in config
 	for _, a := range aliases.Entries {
 		// Format alias command string e.g. alias gs="git status"
