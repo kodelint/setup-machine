@@ -41,9 +41,15 @@ type Setting struct {
 // Aliases holds shell-specific alias definitions.
 // - Shell: Shell type (e.g., zsh, bash).
 // - Entries: List of aliases to apply.
+//type Aliases struct {
+//	Shell   string  `yaml:"shell"`
+//	Entries []Alias `yaml:"entries"`
+//}
+
 type Aliases struct {
-	Shell   string  `yaml:"shell"`
-	Entries []Alias `yaml:"entries"`
+	Shell      string   `yaml:"shell"`
+	RawConfigs []string `yaml:"raw_configs"`
+	Entries    []Alias  `yaml:"entries"`
 }
 
 // Alias defines a single shell alias (e.g., ll = ls -al).
