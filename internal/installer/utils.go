@@ -10,10 +10,10 @@ import (
 // which helps ensure that the generated random sequences differ between program runs.
 var rnd *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-// randomString generates a random alphanumeric string of specified length n.
+// RandomString generates a random alphanumeric string of specified length n.
 // The generated string includes uppercase letters, lowercase letters, and digits.
 // This function can be used for generating random IDs, tokens, or temporary values.
-func randomString(n int) string {
+func RandomString(n int) string {
 	// Define the set of characters to choose from:
 	// lowercase letters, uppercase letters, and digits 0-9.
 	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
