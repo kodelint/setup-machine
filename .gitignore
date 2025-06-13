@@ -1,3 +1,4 @@
 .idea/modules.xml .idea/setup-machine.iml .idea/workspace.xml
 .idea
 setup-machine
+state.json
