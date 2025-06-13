@@ -59,31 +59,12 @@ func SyncTools(tools []config.Tool, st *state.State) {
 		if !existing[name] {
 			// Tool was removed from config; uninstall it
 			logger.Warn("[WARN] %s removed from config. Uninstalling...\n", name)
-
-			if toolState.InstallPath != "" {
-				// Try to remove the binary directly if we know where it was installed
-				err := os.Remove(toolState.InstallPath)
-				if err != nil {
-					// Log error if removal failed
-					logger.Error("[ERROR] Failed to remove binary %s: %v\n", toolState.InstallPath, err)
-				} else {
-					// Successfully removed; update state by deleting tool entry
-					logger.Info("[INFO] Removed binary at %s\n", toolState.InstallPath)
-					delete(st.Tools, name)
-				}
+			if uninstallTool(name, toolState) {
+				delete(st.Tools, name)
 			} else {
-				// If no install path, fallback to using `brew remove` to uninstall the tool
-				cmd := exec.Command("brew", "remove", name)
-				output, err := cmd.CombinedOutput()
-				if err != nil {
-					// Log brew uninstall failure and command output
-					logger.Error("[ERROR] Failed to uninstall %s: %v\nOutput: %s\n", name, err, output)
-				} else {
-					// Successfully uninstalled via brew; remove from state
-					logger.Info("[INFO] Uninstalled %s\n", name)
-					delete(st.Tools, name)
-				}
+				logger.Warn("[WARN] Failed to uninstall %s completely. Manual cleanup may be required.\n", name)
 			}
+
 		}
 	}
 	logger.Debug("[DEBUG] Finished SyncTools\n")
@@ -173,12 +154,13 @@ func SyncAliases(aliases config.Aliases) {
 	// Construct full path to shell rc file
 	rcPath := filepath.Join(usr.HomeDir, shellrc)
 
-	// Read existing aliases from the rc file to avoid duplicates
+	// Read existing lines from the rc file to avoid duplicates
 	existing := make(map[string]bool)
 	if f, err := os.Open(rcPath); err == nil {
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
-			existing[scanner.Text()] = true
+			line := strings.TrimSpace(scanner.Text())
+			existing[line] = true
 		}
 		_ = f.Close()
 	}
@@ -192,25 +174,30 @@ func SyncAliases(aliases config.Aliases) {
 	defer file.Close()
 
 	// Write raw configs if provided
-	for _, line := range aliases.RawConfigs {
-		trimmed := strings.TrimSpace(line)
-		if _, found := existing[trimmed]; found {
-			logger.Debug("[DEBUG] Raw config already exists: %s\n", trimmed)
-			continue
-		}
-		if _, err := file.WriteString(line + "\n"); err != nil {
-			logger.Error("[ERROR] Failed to write raw config line: %s: %v\n", line, err)
-		} else {
-			logger.Info("[INFO] Added raw shell config: %s\n", line)
+	for _, raw := range aliases.RawConfigs {
+		lines := strings.Split(raw, "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || existing[trimmed] {
+				logger.Debug("[DEBUG] Raw config already exists or is empty: %s\n", trimmed)
+				continue
+			}
+			if _, err := file.WriteString(trimmed + "\n"); err != nil {
+				logger.Error("[ERROR] Failed to write raw config line: %s: %v\n", trimmed, err)
+			} else {
+				logger.Info("[INFO] Added raw shell config: %s\n", trimmed)
+				existing[trimmed] = true
+			}
 		}
 	}
+
 	// Iterate over all aliases defined in config
 	for _, a := range aliases.Entries {
 		// Format alias command string e.g. alias gs="git status"
 		aliasCmd := fmt.Sprintf("alias %s=\"%s\"", a.Name, a.Value)
 
 		// Skip if alias already exists in rc file
-		if _, found := existing[aliasCmd]; found {
+		if existing[aliasCmd] {
 			logger.Debug("[DEBUG] Alias already exists: %s\n", aliasCmd)
 			continue
 		}
@@ -222,6 +209,7 @@ func SyncAliases(aliases config.Aliases) {
 		} else {
 			// Log successful alias addition
 			logger.Info("[INFO] Added alias: %s\n", aliasCmd)
+			existing[aliasCmd] = true
 		}
 	}
 }
@@ -240,4 +228,90 @@ func detectShell() string {
 	}
 	// Default fallback
 	return "zsh"
+}
+
+// uninstallTool attempts to remove a tool based on the information provided in toolState.
+// It supports direct file removal, macOS pkgutil package forgetting, and glob-based matching.
+func uninstallTool(name string, toolState state.ToolState) bool {
+	logger.Info("[INFO] Uninstalling %s...\n", name)
+
+	// First, attempt to remove the tool using the exact install path from state
+	if toolState.InstallPath != "" {
+		logger.Debug("[DEBUG] Attempting to remove %s\n", toolState.InstallPath)
+
+		// Try removing the file at the install path
+		if err := os.Remove(toolState.InstallPath); err == nil {
+			logger.Info("[INFO] Successfully removed binary %s\n", toolState.InstallPath)
+			return true
+		}
+
+		// If removal failed, try removing as a directory (useful for tools installed as folders)
+		if err := os.RemoveAll(toolState.InstallPath); err == nil {
+			logger.Info("[INFO] Successfully removed directory %s\n", toolState.InstallPath)
+			return true
+		}
+	}
+
+	// Attempt to uninstall the tool via macOS pkgutil
+	logger.Info("[INFO] Trying to uninstall %s as macOS .pkg...\n", name)
+	pkgutilCmd := exec.Command("pkgutil", "--pkgs")
+	output, err := pkgutilCmd.CombinedOutput()
+	if err != nil {
+		logger.Error("[ERROR] Failed to query pkgutil: %v\nOutput: %s\n", err, output)
+	} else {
+		// Iterate through the list of installed packages
+		for _, line := range strings.Split(string(output), "\n") {
+			// If the package name contains our tool name
+			if strings.Contains(line, name) {
+				forgetCmd := exec.Command("sudo", "pkgutil", "--forget", line)
+				logger.Debug("[DEBUG] Running pkgutil forget: %s\n", strings.Join(forgetCmd.Args, " "))
+				out, err := forgetCmd.CombinedOutput()
+				if err == nil {
+					logger.Info("[INFO] pkgutil forget succeeded for %s\n", line)
+					return true
+				} else {
+					logger.Error("[ERROR] pkgutil forget failed: %v\nOutput: %s\n", err, out)
+				}
+			}
+		}
+	}
+
+	// Fallback: use globbing to match common install paths
+	commonPaths := "/usr/local/bin/" + name + "*"
+	matches, err := filepath.Glob(commonPaths)
+	logger.Debug("[DEBUG] Globbing matches %v\n", matches)
+	if err != nil {
+		logger.Error("[ERROR] Failed to glob %s: %v\n", commonPaths, err)
+	}
+
+	// If any glob matches exist, try to remove them
+	if !globbingMatches(matches) {
+		logger.Debug("[DEBUG] Globbing did not yield valid matches\n")
+		logger.Error("[ERROR] Invalid or empty glob pattern %s\n", commonPaths)
+	} else {
+		return true
+	}
+
+	// If all uninstall attempts failed, return false
+	return false
+}
+
+// globbingMatches executes sudo rm on each glob match to remove the binary.
+// Returns true if any files were successfully removed.
+func globbingMatches(matches []string) bool {
+	result := false
+	for _, match := range matches {
+		logger.Info("[INFO] Removing matched binary: %s\n", match)
+
+		// Run sudo rm -f on the match
+		cmd := exec.Command("sudo", "rm", "-f", match)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			logger.Error("[ERROR] Failed to remove %s: %v\nOutput: %s\n", match, err, output)
+		} else {
+			logger.Info("[INFO] Successfully removed %s\n", match)
+			result = true
+		}
+	}
+	return result
 }
