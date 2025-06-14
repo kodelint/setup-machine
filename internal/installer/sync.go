@@ -11,62 +11,66 @@ import (
 	"setup-machine/internal/logger"
 	"setup-machine/internal/state"
 	"strings"
+	"sync"
 )
 
 // SyncTools synchronizes the installed tools with the desired config and current state.
 // It installs new tools, upgrades outdated tools, and removes tools no longer in the config.
 func SyncTools(tools []config.Tool, st *state.State) {
-	// Log starting info: how many tools to process and current state entries
 	logger.Debug("[DEBUG] Starting SyncTools with %d tools, current state has %d entries\n", len(tools), len(st.Tools))
 
-	// Track tools that are present in the current config
-	existing := map[string]bool{}
+	existing := make(map[string]bool)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
-	// Iterate over all desired tools from the config
+	// Use concurrency for installation/upgrades
 	for _, tool := range tools {
-		existing[tool.Name] = true // Mark this tool as existing in config
+		existing[tool.Name] = true
 
-		// Get current state of this tool from the saved state file
 		curToolState, ok := st.Tools[tool.Name]
-
-		// Check if the tool is missing or the version differs from desired
 		if !ok || curToolState.Version != tool.Version {
-			logger.Debug("[DEBUG] SyncTools: Installing/upgrading %s (current: %s, target: %s)\n", tool.Name, curToolState.Version, tool.Version)
+			wg.Add(1)
+			go func(tool config.Tool, curToolState state.ToolState, exists bool) {
+				defer wg.Done()
+				logger.Debug("[DEBUG] SyncTools: Installing/upgrading %s (current: %s, target: %s)\n",
+					tool.Name, curToolState.Version, tool.Version)
 
-			// Attempt to install or upgrade the tool
-			success, installPath := installTool(tool)
-			if success {
-				// Log success and update the state with the new version and install path
-				logger.Info("[INFO] Installed %s@%s\n", tool.Name, tool.Version)
-				st.Tools[tool.Name] = state.ToolState{
-					Version:             tool.Version,
-					InstallPath:         installPath,
-					InstalledByDevSetup: true,
+				success, installPath := installTool(tool)
+				if success {
+					logger.Info("[INFO] Installed %s@%s\n", tool.Name, tool.Version)
+
+					// Protect state update with a mutex
+					mu.Lock()
+					st.Tools[tool.Name] = state.ToolState{
+						Version:             tool.Version,
+						InstallPath:         installPath,
+						InstalledByDevSetup: true,
+					}
+					mu.Unlock()
+				} else {
+					logger.Error("[ERROR] Failed to install %s@%s\n", tool.Name, tool.Version)
 				}
-			} else {
-				// Log failure to install
-				logger.Error("[ERROR] Failed to install %s@%s\n", tool.Name, tool.Version)
-			}
+			}(tool, curToolState, ok)
 		} else {
-			// Tool is already at the desired version; no action needed
 			logger.Debug("[DEBUG] SyncTools: %s version %s is already current.\n", tool.Name, tool.Version)
 			logger.Info("[INFO] %s version %s is current. Skipping.\n", tool.Name, tool.Version)
 		}
 	}
 
-	// Now handle tools that exist in the state but are no longer in the config (should be removed)
+	wg.Wait() // Wait for all installs to complete
+
+	// Sequential removal to avoid conflicts with state modifications
 	for name, toolState := range st.Tools {
 		if !existing[name] {
-			// Tool was removed from config; uninstall it
 			logger.Warn("[WARN] %s removed from config. Uninstalling...\n", name)
 			if uninstallTool(name, toolState) {
 				delete(st.Tools, name)
 			} else {
 				logger.Warn("[WARN] Failed to uninstall %s completely. Manual cleanup may be required.\n", name)
 			}
-
 		}
 	}
+
 	logger.Debug("[DEBUG] Finished SyncTools\n")
 }
 
@@ -235,33 +239,90 @@ func detectShell() string {
 func uninstallTool(name string, toolState state.ToolState) bool {
 	logger.Info("[INFO] Uninstalling %s...\n", name)
 
-	// First, attempt to remove the tool using the exact install path from state
-	if toolState.InstallPath != "" {
-		logger.Debug("[DEBUG] Attempting to remove %s\n", toolState.InstallPath)
+	installPath := toolState.InstallPath
 
-		// Try removing the file at the install path
-		if err := os.Remove(toolState.InstallPath); err == nil {
-			logger.Info("[INFO] Successfully removed binary %s\n", toolState.InstallPath)
+	// Uninstall using Homebrew if path indicates Homebrew installation
+	if strings.HasPrefix(installPath, "/opt/homebrew/bin/") {
+		logger.Info("[INFO] Detected Homebrew tool. Uninstalling with brew...\n")
+		cmd := exec.Command("brew", "uninstall", name)
+		output, err := cmd.CombinedOutput()
+		logger.Debug("[DEBUG] brew uninstall output: %s\n", output)
+		if err != nil {
+			logger.Error("[ERROR] Brew uninstall failed: %v\n", err)
+			return false
+		}
+		return true
+	}
+
+	// Uninstall Go tools by removing binary
+	if strings.HasPrefix(installPath, filepath.Join(os.Getenv("HOME"), "go/bin/")) {
+		logger.Info("[INFO] Detected Go tool. Removing binary directly...\n")
+		if err := os.Remove(installPath); err == nil {
+			logger.Info("[INFO] Successfully removed Go binary %s\n", installPath)
 			return true
+		} else {
+			logger.Error("[ERROR] Failed to remove Go binary %s: %v\n", installPath, err)
+			return false
+		}
+	}
+
+	// Uninstall Rustup or Cargo tools
+	if strings.HasPrefix(installPath, filepath.Join(os.Getenv("HOME"), ".cargo/bin/")) {
+		logger.Info("[INFO] Detected Rust tool. Determining uninstall strategy...\n")
+
+		// Check if it's a rustup component (rustfmt, clippy, rust-analyzer, etc.)
+		showCmd := exec.Command("rustup", "show", "active-toolchain")
+		output, err := showCmd.CombinedOutput()
+		activeToolchain := strings.TrimSpace(string(output))
+		logger.Debug("[DEBUG] rustup active-toolchain output: %s\n", activeToolchain)
+
+		if err != nil {
+			logger.Error("[ERROR] Failed to query rustup active toolchain: %v\n", err)
+		} else if strings.Contains(activeToolchain, "system") {
+			logger.Warn("[WARN] Cannot uninstall rustup component — toolchain is 'system'.\n")
+			logger.Warn("[WARN] To switch to a proper toolchain, run: rustup install stable && rustup default stable\n")
+			return false
+		} else {
+			logger.Info("[INFO] Cannot uninstall rustup component directly. Manual cleanup may be required.\n")
+			// You can optionally attempt to remove the binary directly if it's not a managed component
+			if err := os.Remove(installPath); err == nil {
+				logger.Info("[INFO] Removed binary %s as fallback\n", installPath)
+				return true
+			}
+			return false
 		}
 
-		// If removal failed, try removing as a directory (useful for tools installed as folders)
-		if err := os.RemoveAll(toolState.InstallPath); err == nil {
-			logger.Info("[INFO] Successfully removed directory %s\n", toolState.InstallPath)
+		// Otherwise, try cargo uninstall (non-rustup component)
+		cmd := exec.Command("cargo", "uninstall", name)
+		cargoOutput, err := cmd.CombinedOutput()
+		logger.Debug("[DEBUG] cargo uninstall output: %s\n", cargoOutput)
+		if err != nil {
+			logger.Error("[ERROR] Cargo uninstall failed: %v\n", err)
+			return false
+		}
+		return true
+	}
+
+	// Fallback to direct file or directory removal
+	if installPath != "" {
+		logger.Debug("[DEBUG] Attempting to remove %s\n", installPath)
+		if err := os.Remove(installPath); err == nil {
+			logger.Info("[INFO] Successfully removed binary %s\n", installPath)
+			return true
+		} else if err := os.RemoveAll(installPath); err == nil {
+			logger.Info("[INFO] Successfully removed directory %s\n", installPath)
 			return true
 		}
 	}
 
-	// Attempt to uninstall the tool via macOS pkgutil
+	// Try uninstalling .pkg files via macOS pkgutil
 	logger.Info("[INFO] Trying to uninstall %s as macOS .pkg...\n", name)
 	pkgutilCmd := exec.Command("pkgutil", "--pkgs")
 	output, err := pkgutilCmd.CombinedOutput()
 	if err != nil {
 		logger.Error("[ERROR] Failed to query pkgutil: %v\nOutput: %s\n", err, output)
 	} else {
-		// Iterate through the list of installed packages
 		for _, line := range strings.Split(string(output), "\n") {
-			// If the package name contains our tool name
 			if strings.Contains(line, name) {
 				forgetCmd := exec.Command("sudo", "pkgutil", "--forget", line)
 				logger.Debug("[DEBUG] Running pkgutil forget: %s\n", strings.Join(forgetCmd.Args, " "))
@@ -276,7 +337,7 @@ func uninstallTool(name string, toolState state.ToolState) bool {
 		}
 	}
 
-	// Fallback: use globbing to match common install paths
+	// Fallback: use globbing to match and delete binaries
 	commonPaths := "/usr/local/bin/" + name + "*"
 	matches, err := filepath.Glob(commonPaths)
 	logger.Debug("[DEBUG] Globbing matches %v\n", matches)
@@ -284,7 +345,6 @@ func uninstallTool(name string, toolState state.ToolState) bool {
 		logger.Error("[ERROR] Failed to glob %s: %v\n", commonPaths, err)
 	}
 
-	// If any glob matches exist, try to remove them
 	if !globbingMatches(matches) {
 		logger.Debug("[DEBUG] Globbing did not yield valid matches\n")
 		logger.Error("[ERROR] Invalid or empty glob pattern %s\n", commonPaths)
@@ -292,7 +352,6 @@ func uninstallTool(name string, toolState state.ToolState) bool {
 		return true
 	}
 
-	// If all uninstall attempts failed, return false
 	return false
 }
 
@@ -302,8 +361,6 @@ func globbingMatches(matches []string) bool {
 	result := false
 	for _, match := range matches {
 		logger.Info("[INFO] Removing matched binary: %s\n", match)
-
-		// Run sudo rm -f on the match
 		cmd := exec.Command("sudo", "rm", "-f", match)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
