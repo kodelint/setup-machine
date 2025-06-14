@@ -2,6 +2,7 @@ aliases:
   shell: zsh
   raw_configs:
     - export PATH=$HOME/bin:$PATH
+    - export PATH=$HOME/.cargo/bin:$PATH
     - eval "$(starship init zsh)"
     - '[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh'
     - zle -N fzf-history-widget
@@ -120,3 +121,5 @@ aliases:
       value: g shortlog -sne
     - name: cat
       value: bat
+    - name: vim
+      value: hx
