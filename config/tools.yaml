@@ -19,7 +19,29 @@ tools:
     source: github
     repo: ducaale/xh
     tag: v0.24.1
-  - name: rust
-    version: "1.87.0"
+  # Homebrew-based tool (latest version always)
+  - name: htop
+    source: brew
+  - name: rustup
+    source: brew
+  # Go-based tool using go install
+  - name: gopls
+    version: "latest"
+    source: go
+    repo: golang.org/x/tools/gopls
+#   Rust-based tool using cargo install
+  - name: rust-analyzer
+    version: "0.10.1"
+    source: rustup
+#  - name: rust
+#    version: "1.87.0"
+#    source: url
+#    url: https://static.rust-lang.org/dist/rust-1.87.0-aarch64-apple-darwin.pkg
+  - name: go
+    version: "1.24.4"
     source: url
-    url: https://static.rust-lang.org/dist/rust-1.87.0-aarch64-apple-darwin.pkg
+    url: https://go.dev/dl/go1.24.4.darwin-amd64.pkg
+  - name: zig
+    version: "0.15.0"
+    source: url
+    url: https://ziglang.org/builds/zig-aarch64-macos-0.15.0-dev.777+6810ffa42.tar.xz
