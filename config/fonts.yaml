@@ -1,0 +1,7 @@
+fonts:
+  - name: 0xProto
+    version: "2.304"
+    source: github
+    repo: ryanoasis/nerd-fonts
+    tag: v3.4.0
+
