@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
-	"setup-machine/internal/logger"
+	"setup-machine/internal/config"
 )
 
 // debug flag indicates whether debug logging should be enabled.
@@ -18,7 +18,7 @@ var rootCmd = &cobra.Command{
 	// PersistentPreRun is a hook that runs before any subcommand.
 	// Here, we initialize the logger based on the debug flag.
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		logger.Init(debug) // Set up logging (verbose if --debug is true)
+		config.Init(debug) // Set up logging (verbose if --debug is true)
 	},
 }
 

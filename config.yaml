@@ -2,3 +2,4 @@ config:
   tools_file: "config/tools.yaml"
   settings_file: "config/settings.yaml"
   aliases_file: "config/aliases.yaml"
+  fonts_file: "config/fonts.yaml"

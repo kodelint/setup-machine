@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 	"setup-machine/internal/config"
 	"setup-machine/internal/installer"
-	"setup-machine/internal/state"
 )
 
 // configPath holds the path to the main configuration YAML file.
@@ -16,61 +15,72 @@ var configPath string
 var statePath = "state.json" // You can make this configurable too
 
 // syncCmd is the top-level command for syncing all configuration aspects:
-// tools, macOS settings, and shell aliases.
+// tools, macOS settings, shell aliases, and fonts.
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Sync system state with config (tools, settings, aliases)",
+	Short: "Sync system state with config (tools, settings, aliases, fonts)",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load configuration and state
 		cfg := config.LoadConfig(configPath)
-		st := state.LoadState(statePath)
+		st := config.LoadState(statePath)
 
-		// Sync tools, settings, and aliases based on the loaded config
+		// Sync tools, settings, aliases, and fonts
 		installer.SyncTools(cfg.Tools, st)
 		installer.SyncSettings(cfg.Settings, st)
 		installer.SyncAliases(cfg.Aliases)
+		installer.SyncFonts(cfg.Fonts, st)
 
 		// Save updated state after syncing
-		state.SaveState(statePath, st)
+		config.SaveState(statePath, st)
 	},
 }
 
 // syncToolsCmd syncs only the tool installations.
-// It uses the config file for definitions and the state file for idempotency.
 var syncToolsCmd = &cobra.Command{
 	Use:   "tools",
 	Short: "Sync only tools with config",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := config.LoadConfig(configPath)
-		st := state.LoadState(statePath)
+		st := config.LoadState(statePath)
 
 		installer.SyncTools(cfg.Tools, st)
-		state.SaveState(statePath, st)
+		config.SaveState(statePath, st)
 	},
 }
 
 // syncSettingsCmd syncs only macOS settings.
-// It updates the state after applying changes.
 var syncSettingsCmd = &cobra.Command{
 	Use:   "settings",
 	Short: "Sync only macOS settings with config",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := config.LoadConfig(configPath)
-		st := state.LoadState(statePath)
+		st := config.LoadState(statePath)
 
 		installer.SyncSettings(cfg.Settings, st)
-		state.SaveState(statePath, st)
+		config.SaveState(statePath, st)
 	},
 }
 
-// syncAliasesCmd syncs only shell aliases (e.g., for zsh or bash).
-// Aliases are applied directly and do not persist state (yet).
+// syncAliasesCmd syncs only shell aliases.
 var syncAliasesCmd = &cobra.Command{
 	Use:   "aliases",
 	Short: "Sync only shell aliases with config",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := config.LoadConfig(configPath)
 		installer.SyncAliases(cfg.Aliases)
+	},
+}
+
+// syncFontsCmd syncs only fonts.
+var syncFontsCmd = &cobra.Command{
+	Use:   "fonts",
+	Short: "Sync only fonts with config",
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg := config.LoadConfig(configPath)
+		st := config.LoadState(statePath)
+
+		installer.SyncFonts(cfg.Fonts, st)
+		config.SaveState(statePath, st)
 	},
 }
 
@@ -83,7 +93,7 @@ func init() {
 	syncCmd.AddCommand(syncToolsCmd)
 	syncCmd.AddCommand(syncSettingsCmd)
 	syncCmd.AddCommand(syncAliasesCmd)
-
+	syncCmd.AddCommand(syncFontsCmd)
 	// Register the `sync` command with the root command
 	rootCmd.AddCommand(syncCmd)
 }

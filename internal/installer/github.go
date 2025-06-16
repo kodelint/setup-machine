@@ -8,18 +8,8 @@ import (
 	"path"
 	"runtime"
 	"setup-machine/internal/config"
-	"setup-machine/internal/logger"
 	"strings"
 )
-
-// GitHubRelease represents the structure of a GitHub release JSON response.
-type GitHubRelease struct {
-	TagName string `json:"tag_name"` // The release tag (e.g., v1.0.0)
-	Assets  []struct {
-		Name               string `json:"name"`                 // Asset filename
-		BrowserDownloadURL string `json:"browser_download_url"` // Direct download URL for the asset
-	} `json:"assets"`
-}
 
 // downloadFromGitHub downloads a specific version of a tool from GitHub Releases.
 // It locates the asset matching the OS/Arch, downloads it, extracts the archive,
@@ -37,16 +27,16 @@ func downloadFromGitHub(tool config.Tool) (string, error) {
 
 	// Build GitHub API URL to fetch the release metadata
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, tag)
-	logger.Debug("[DEBUG] Fetching GitHub release from URL: %s\n", url)
+	config.Debug("[DEBUG] Fetching GitHub release from URL: %s\n", url)
 
 	// Make HTTP request to GitHub API
 	resp, err := http.Get(url)
 	if err != nil {
-		return "", fmt.Errorf("HTTP GET error fetching release for %s@%s: %w", tool.Name, tool.Version, err)
+		return "", fmt.Errorf("HTTP GET Error fetching release for %s@%s: %w", tool.Name, tool.Version, err)
 	}
 	defer func() {
 		if cerr := resp.Body.Close(); cerr != nil {
-			logger.Warn("[WARN] Failed to close HTTP response body: %v\n", cerr)
+			config.Warn("[WARN] Failed to close HTTP response body: %v\n", cerr)
 		}
 	}()
 
@@ -56,16 +46,16 @@ func downloadFromGitHub(tool config.Tool) (string, error) {
 	}
 
 	// Parse the JSON response into the GitHubRelease struct
-	var release GitHubRelease
+	var release config.GitHubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return "", fmt.Errorf("failed to decode GitHub release JSON for %s@%s: %w", tool.Name, tool.Version, err)
 	}
-	logger.Debug("[DEBUG] Release tag: %s with %d assets\n", release.TagName, len(release.Assets))
+	config.Debug("[DEBUG] Release tag: %s with %d assets\n", release.TagName, len(release.Assets))
 
 	// Detect local OS and architecture
 	arch := strings.ToLower(runtime.GOARCH)
 	osys := strings.ToLower(runtime.GOOS)
-	logger.Debug("[DEBUG] Looking for asset matching OS=%s or macos ARCH=%s\n", osys, arch)
+	config.Debug("[DEBUG] Looking for asset matching OS=%s or macos ARCH=%s\n", osys, arch)
 
 	// Define preferred asset filename patterns for macOS/arm64
 	preferredPatterns := []string{
@@ -76,7 +66,7 @@ func downloadFromGitHub(tool config.Tool) (string, error) {
 	var assetURL, assetName string
 	for _, pattern := range preferredPatterns {
 		for _, asset := range release.Assets {
-			logger.Debug("[DEBUG] Within Release Patten matching asset: %s with name: %s\n", asset.BrowserDownloadURL, asset.Name)
+			config.Debug("[DEBUG] Within Release Patten matching asset: %s with name: %s\n", asset.BrowserDownloadURL, asset.Name)
 			assetNameLower := strings.ToLower(asset.Name)
 			if strings.Contains(assetNameLower, pattern) &&
 				(strings.HasSuffix(assetNameLower, ".tar.gz") ||
@@ -86,7 +76,7 @@ func downloadFromGitHub(tool config.Tool) (string, error) {
 					strings.HasSuffix(assetNameLower, ".zip")) {
 				assetURL = asset.BrowserDownloadURL
 				assetName = asset.Name
-				logger.Debug("[DEBUG] Found matching asset: %s\n", assetName)
+				config.Debug("[DEBUG] Found matching asset: %s\n", assetName)
 				break
 			}
 		}
@@ -102,21 +92,21 @@ func downloadFromGitHub(tool config.Tool) (string, error) {
 
 	// Download the asset to a temporary location using curl
 	compressedAssetName := "/tmp/" + path.Base(assetURL)
-	logger.Info("[INFO] Downloading asset %s to %s\n", assetName, compressedAssetName)
+	config.Info("[INFO] Downloading asset %s to %s\n", assetName, compressedAssetName)
 	curlCmd := exec.Command("curl", "-L", assetURL, "-o", compressedAssetName)
-	logger.Debug("[DEBUG] Running command: %s\n", strings.Join(curlCmd.Args, " "))
+	config.Debug("[DEBUG] Running command: %s\n", strings.Join(curlCmd.Args, " "))
 	output, err := curlCmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to download asset %s: %v\nOutput: %s", assetName, err, output)
 	}
 
 	// Extract the downloaded archive
-	asset, err := ExtractAndInstall(compressedAssetName, "/tmp/")
+	asset, err := extractAndInstall(compressedAssetName, "/tmp/")
 	if err != nil {
 		return "", fmt.Errorf("failed to extract archive: %v", err)
 	}
 
-	logger.Debug("[DEBUG] Extracted asset to %s\n", asset)
-	logger.Info("[INFO] Installed %s \n", asset)
+	config.Debug("[DEBUG] Extracted asset to %s\n", asset)
+	config.Info("[INFO] Installed %s \n", asset)
 	return asset, nil
 }

@@ -1,32 +1,109 @@
 package installer
 
 import (
-	"math/rand" // Package rand implements pseudo-random number generators
-	"time"      // Package time provides functionality for measuring and displaying time
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"setup-machine/internal/config"
+	"strings"
 )
 
-// rnd is a package-level variable holding a pseudo-random number generator (PRNG) instance.
-// This is initialized once with a seed based on the current time in nanoseconds,
-// which helps ensure that the generated random sequences differ between program runs.
-var rnd *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+func downloadFile(url, destPath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to GET %s: %w", url, err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			config.Error("[ERROR] Failed to close response body: %s\n", cerr)
+		}
+	}()
 
-// RandomString generates a random alphanumeric string of specified length n.
-// The generated string includes uppercase letters, lowercase letters, and digits.
-// This function can be used for generating random IDs, tokens, or temporary values.
-func RandomString(n int) string {
-	// Define the set of characters to choose from:
-	// lowercase letters, uppercase letters, and digits 0-9.
-	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	out, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", destPath, err)
+	}
+	defer func() {
+		if cerr := out.Close(); cerr != nil {
+			config.Error("[ERROR] Failed to close destination file: %s\n", cerr)
+		}
+	}()
 
-	// Create a slice of runes with length n to hold the randomly chosen characters.
-	b := make([]rune, n)
-
-	// Loop over each index of the slice and assign a random character from 'letters'.
-	for i := range b {
-		// rnd.Intn(len(letters)) returns a random index within the letters slice.
-		b[i] = letters[rnd.Intn(len(letters))]
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		return fmt.Errorf("failed to write response to file: %w", err)
 	}
 
-	// Convert the slice of runes back to a string and return it.
-	return string(b)
+	config.Debug("[DEBUG] Downloaded font zip to: %s\n", destPath)
+	return nil
+}
+
+// detectShell attempts to identify the current user's shell by inspecting the SHELL env variable.
+// Returns "zsh" or "bash" or defaults to "zsh" if unknown.
+func detectShell() string {
+	shell := os.Getenv("SHELL")
+	config.Debug("[DEBUG] Detected shell environment: %s\n", shell)
+
+	// Match common shell strings to either zsh or bash
+	if strings.Contains(shell, "zsh") {
+		return "zsh"
+	} else if strings.Contains(shell, "bash") {
+		return "bash"
+	}
+	// Default fallback
+	return "zsh"
+}
+
+// globbingMatches executes sudo rm on each glob match to remove the binary.
+// Returns true if any files were successfully removed.
+func globbingMatches(matches []string) bool {
+	result := false
+	for _, match := range matches {
+		config.Info("[INFO] Removing matched binary: %s\n", match)
+		cmd := exec.Command("sudo", "rm", "-f", match)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			config.Error("[ERROR] Failed to remove %s: %v\nOutput: %s\n", match, err, output)
+		} else {
+			config.Info("[INFO] Successfully removed %s\n", match)
+			result = true
+		}
+	}
+	return result
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open source failed: %w", err)
+	}
+	defer in.Close()
+
+	// Make sure destination dir exists
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return fmt.Errorf("mkdir failed: %w", err)
+	}
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("create target failed: %w", err)
+	}
+	defer func() {
+		cerr := out.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy failed: %w", err)
+	}
+
+	if stat, err := os.Stat(src); err == nil {
+		_ = os.Chmod(dst, stat.Mode())
+	}
+
+	return nil
 }

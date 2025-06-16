@@ -1,1 +1,92 @@
-{}
+{
+  "tools": {
+    "bat": {
+      "version": "0.25.0",
+      "install_path": "/Users/roy/bin/bat",
+      "installed_by_dev_setup": true
+    },
+    "cli": {
+      "version": "2.74.0",
+      "install_path": "/Users/roy/bin/gh",
+      "installed_by_dev_setup": true
+    },
+    "fzf": {
+      "version": "0.62.0",
+      "install_path": "/Users/roy/bin/fzf",
+      "installed_by_dev_setup": true
+    },
+    "go": {
+      "version": "1.24.4",
+      "install_path": "/Applications",
+      "installed_by_dev_setup": true
+    },
+    "gopls": {
+      "version": "latest",
+      "install_path": "/Users/roy/go/bin/gopls",
+      "installed_by_dev_setup": true
+    },
+    "htop": {
+      "version": "",
+      "install_path": "/opt/homebrew/bin/htop",
+      "installed_by_dev_setup": true
+    },
+    "rust-analyzer": {
+      "version": "0.10.1",
+      "install_path": "/Users/roy/.cargo/bin/rust-analyzer",
+      "installed_by_dev_setup": true
+    },
+    "rustup": {
+      "version": "",
+      "install_path": "/opt/homebrew/bin/rustup",
+      "installed_by_dev_setup": true
+    },
+    "xh": {
+      "version": "0.24.1",
+      "install_path": "/Users/roy/bin/xh",
+      "installed_by_dev_setup": true
+    },
+    "zig": {
+      "version": "0.15.0",
+      "install_path": "/Users/roy/bin/zig",
+      "installed_by_dev_setup": true
+    }
+  },
+  "settings": {
+    "NSGlobalDomain:AppleShowAllExtensions": {
+      "domain": "NSGlobalDomain",
+      "key": "AppleShowAllExtensions",
+      "value": "true"
+    },
+    "NSGlobalDomain:KeyRepeat": {
+      "domain": "NSGlobalDomain",
+      "key": "KeyRepeat",
+      "value": "1"
+    },
+    "com.apple.dock:expose-animation-duration": {
+      "domain": "com.apple.dock",
+      "key": "expose-animation-duration",
+      "value": "0.1"
+    },
+    "com.apple.finder:AppleShowAllFiles": {
+      "domain": "com.apple.finder",
+      "key": "AppleShowAllFiles",
+      "value": "true"
+    },
+    "com.apple.finder:ShowPathbar": {
+      "domain": "com.apple.finder",
+      "key": "ShowPathbar",
+      "value": "true"
+    }
+  },
+  "fonts": {
+    "0xProto": {
+      "name": "0xProto",
+      "url": "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/0xProto.zip",
+      "files": [
+        "/Users/roy/Library/Fonts/0xProtoNerdFont-Regular.ttf",
+        "/Users/roy/Library/Fonts/0xProtoNerdFontMono-Regular.ttf",
+        "/Users/roy/Library/Fonts/0xProtoNerdFontPropo-Regular.ttf"
+      ]
+    }
+  }
+}

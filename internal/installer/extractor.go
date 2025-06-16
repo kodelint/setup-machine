@@ -12,19 +12,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"setup-machine/internal/logger"
+	"setup-machine/internal/config"
 	"strings"
 )
 
-// ExtractAndInstall extracts an archive and installs its binary/binaries into /usr/local/bin or fallback $HOME/bin
-func ExtractAndInstall(src, dest string) (string, error) {
+// extractAndInstall extracts an archive and installs its binary/binaries into /usr/local/bin or fallback $HOME/bin
+func extractAndInstall(src, dest string) (string, error) {
 	// Extract the archive to the destination
-	extractedPath, err := ExtractArchive(src, dest)
+	extractedPath, err := extractArchive(src, dest)
 	if err != nil {
 		return "", err
 	}
 
-	// Get info about the extracted path
+	// Get Info about the extracted path
 	info, err := os.Stat(extractedPath)
 	if err != nil {
 		return "", err
@@ -88,27 +88,27 @@ func extractToolNameFromPath(path string) string {
 	return filename
 }
 
-// ExtractArchive routes to appropriate extraction function based on archive type
-func ExtractArchive(src, dest string) (string, error) {
+// extractArchive routes to appropriate extraction function based on archive type
+func extractArchive(src, dest string) (string, error) {
 	switch {
 	case strings.HasSuffix(src, ".zip"):
-		logger.Debug("[Debug] compression type is zip")
+		config.Debug("[Debug] compression type is zip\n")
 		return extractZip(src, dest)
 	case strings.HasSuffix(src, ".7z"):
-		logger.Debug("[Debug] compression type is .7z")
+		config.Debug("[Debug] compression type is .7z\n")
 		return extract7z(src, dest)
 	case strings.HasSuffix(src, ".tar"), strings.HasSuffix(src, ".tar.gz"), strings.HasSuffix(src, ".tgz"),
 		strings.HasSuffix(src, ".tar.bz2"), strings.HasSuffix(src, ".tar.xz"):
-		logger.Debug("[Debug] compression type is .tar.*")
+		config.Debug("[Debug] compression type is .tar.*\n")
 		return extractTarArchive(src, dest)
 	default:
-		return "", fmt.Errorf("unsupported archive format: %s", src)
+		return "", fmt.Errorf("unsupported archive format: %s\n", src)
 	}
 }
 
 // extractTarArchive handles tar and compressed tar variants
 func extractTarArchive(src, dest string) (string, error) {
-	logger.Debug("[Debug] uncompressing  %s to %s\n", src, dest)
+	config.Debug("[Debug] uncompressing  %s to %s\n", src, dest)
 	f, err := os.Open(src)
 	if err != nil {
 		return "", err
@@ -191,13 +191,16 @@ func extractZip(src, dest string) (string, error) {
 	for _, f := range r.File {
 		path := filepath.Join(dest, f.Name)
 		if topLevel == "" {
-			parts := strings.Split(f.Name, string(os.PathSeparator))
+			parts := strings.Split(f.Name, "/")
 			if len(parts) > 0 {
 				topLevel = parts[0]
 			}
 		}
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(path, 0755)
+			err := os.MkdirAll(path, 0755)
+			if err != nil {
+				return "", err
+			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -267,12 +270,12 @@ func extract7z(src, dest string) (string, error) {
 
 // findExecutables scans a directory tree and returns all executable files matching the tool name
 func findExecutables(root string, toolName string) ([]string, error) {
-	logger.Debug("[DEBUG] Scanning directory for executables: %s", root)
+	config.Debug("[DEBUG] Scanning directory for executables: %s", root)
 	var executables []string
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			logger.Debug("[DEBUG] WalkDir error: %v", err)
+			config.Debug("[DEBUG] WalkDir Error: %v", err)
 			return err
 		}
 		if d.IsDir() {
@@ -280,7 +283,7 @@ func findExecutables(root string, toolName string) ([]string, error) {
 		}
 		info, err := d.Info()
 		if err != nil {
-			logger.Debug("[DEBUG] Failed to get file info for %s: %v", path, err)
+			config.Debug("[DEBUG] Failed to get file Info for %s: %v", path, err)
 			return nil
 		}
 		mode := info.Mode()
@@ -293,7 +296,7 @@ func findExecutables(root string, toolName string) ([]string, error) {
 
 		// Check if it’s executable based on permissions
 		if mode.IsRegular() && (mode.Perm()&0111 != 0 || strings.HasPrefix(mode.String(), "-rwx")) {
-			logger.Debug("[DEBUG] Found executable (perm): %s", path)
+			config.Debug("[DEBUG] Found executable (perm): %s", path)
 			executables = append(executables, path)
 			return nil
 		}
@@ -305,7 +308,7 @@ func findExecutables(root string, toolName string) ([]string, error) {
 		}
 		output := strings.ToLower(string(out))
 		if strings.Contains(output, "executable") || strings.Contains(output, "mach-o") || strings.Contains(output, "elf") {
-			logger.Debug("[DEBUG] Found executable via file command: %s", path)
+			config.Debug("[DEBUG] Found executable via file command: %s", path)
 			executables = append(executables, path)
 		}
 		return nil
