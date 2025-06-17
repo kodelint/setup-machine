@@ -3,7 +3,9 @@
 > ⚙️ Automate your macOS developer environment setup with Go
 
 [![Go](https://img.shields.io/badge/go-1.20-blue.svg)](https://golang.org)
-[![GitHub release](https://img.shields.io/github/release/kodelint/setup-machine.svg)](https://github.com/kodelint/setup-machine/releases)
+[![Release](https://img.shields.io/github/release/kodelint/setup-machine.svg)](https://github.com/kodelint/setup-machine/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kodelint/setup-machine)](https://goreportcard.com/report/github.com/kodelint/setup-machine)
+
 
 `setup-machine` is a powerful, modular, and version-aware CLI tool to automate the setup of your macOS developer environment. Written in Go, it uses a declarative YAML configuration to install CLI tools, manage shell aliases, and apply macOS system settings — all while keeping track of state for safe, idempotent operations.
 
@@ -13,17 +15,18 @@
 
 - 🧩 Modular, declarative setup via clean `YAML` configs
 - 📦 Flexible tool installation from:
-- ✅ GitHub releases (.zip, `.tar.gz`, .`tgz`)
-- ✅ Custom direct-download URLs 
-- ✅ `go install` with version enforcement 
-- ✅ `cargo install` via Rust 
-- ✅ `rustup component add` (auto-detects active architecture)
-- ✅ Homebrew (always latest)
-- 🔐 Version enforcement & binary discovery 
-- 🧹 Uninstall unmanaged tools with method-aware fallback logic 
-- 🧠 Statefile-based tracking for tools, aliases, and settings 
-- 🐚 Shell alias configuration with smart duplication avoidance 
-- 🍎 Apply macOS defaults using native defaults CLI
+    - ✅ GitHub releases (`.zip`, `.tar.gz`, `.tgz`)
+    - ✅ Custom direct-download URLs
+    - ✅ `go install` with version enforcement
+    - ✅ `cargo install` via Rust
+    - ✅ `rustup component add` (auto-detects active architecture)
+    - ✅ Homebrew (installs latest version)
+- 🔤 Font installation from GitHub releases (only "Regular" fonts)
+- 🔐 Version enforcement & binary discovery
+- 🧹 Uninstall unmanaged tools and fonts with method-aware fallback logic
+- 🧠 Statefile-based tracking for tools, aliases, fonts, and settings
+- 🐚 Shell alias configuration with smart duplication avoidance
+- 🍎 Apply macOS defaults using native `defaults` CLI
 
 ---
 
@@ -40,6 +43,8 @@ flowchart TD
     G --> H[Modify .zshrc/.bashrc]
     C --> I{Sync macOS settings}
     I --> J[Apply settings via defaults command]
+    C --> M{Sync fonts}
+    M --> N[Install fonts to ~/Library/Fonts]
     B --> K[Update JSON statefile]
     K --> L[Track versions, install paths, settings]
 ```
@@ -51,24 +56,29 @@ flowchart TD
 │   ├── root.go
 │   └── sync.go 
 ├── config/
-│   ├── config.yaml      # high-level config (skel)
 │   ├── tools.yaml       # tools to install
 │   ├── settings.yaml    # macOS preferences
+│   ├── fonts.yaml       # Fonts preferences
 │   └── aliases.yaml     # shell aliases/env setup
 ├── internal/
 │   ├── config/          # config loaders
-│   ├── installer/       # tool installation logic
-│   ├── logger/          # debug/info/error logging
-│   ├── state/           # state tracking
-│   └── extractor/       # archive handling & binary detection
+│   └── installer/       # tool installation logic
 ├── config.yaml          # example global config
-└── main.go
+├── main.go              # entry point
+└── state.json           # statefile
 ```
 
 ## YAML configuration
 The whole configuration file has been slit into 4 different `yaml` files
 
-- `config.yaml`
+#### `config.yaml` main config file
+```yaml
+config:
+  tools_file: "config/tools.yaml"
+  settings_file: "config/settings.yaml"
+  aliases_file: "config/aliases.yaml"
+  fonts_file: "config/fonts.yaml"
+```
 
 #### tools.yaml`
 ```yaml
@@ -119,8 +129,18 @@ settings:
     key: AppleShowAllFiles
     type: bool
     value: true
-
 ```
+
+#### `fonts.yaml`
+```yaml
+fonts:
+  - name: 0xProto
+    version: "2.304"
+    source: github
+    repo: ryanoasis/nerd-fonts
+    tag: v3.4.0
+```
+(Note: Only `.ttf` and `.otf` font files containing **"Regular/regular"** in the name are installed into `~/Library/Fonts`.)
 
 ## 📦 Installation
 Clone the repo and build:
@@ -169,8 +189,11 @@ State is tracked in a JSON file `state.json`:
 - 💡 Enables safe upgrades/downgrades
 - 💡 Allows tool cleanup when removed from config
 - 💡 Avoids duplicate alias lines
+- 💡 Prevents re-applying unchanged settings
 
-## 💡 Planned Enhancements
-🔜 Editor plugin setup (Vim, Neovim)  
-🔜 Font installation  
-🔜 GitHub auth/token support
+## 📍 Roadmap
+- [x] `GitHub` + `Go` + `Rust` + `Brew` tool install
+- [x] Font install with version/state tracking
+- [x] Shell alias syncing and deduplication
+- [x] macOS settings via defaults
+- [ ] Editor plugin sync (Neovim, Helix, etc.)
