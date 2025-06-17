@@ -1,13 +1,13 @@
 package installer
 
 import (
-	"archive/tar"    // For reading .tar archives
-	"archive/zip"    // For reading .zip archives
-	"compress/bzip2" // For reading .bz2 compressed data
-	"compress/gzip"  // For reading .gz compressed data
+	"archive/tar"    // Package to read tar archives
+	"archive/zip"    // Package to read zip archives
+	"compress/bzip2" // Package to read bzip2 compressed data streams
+	"compress/gzip"  // Package to read gzip compressed data streams
 	"fmt"
-	"github.com/bodgit/sevenzip" // For reading .7z archives
-	"github.com/xi2/xz"          // For reading .xz compressed data
+	"github.com/bodgit/sevenzip" // Third-party package to read 7z archives
+	"github.com/xi2/xz"          // Third-party package to read xz compressed streams
 	"io"
 	"os"
 	"os/exec"
@@ -16,40 +16,45 @@ import (
 	"strings"
 )
 
-// extractAndInstall extracts an archive and installs its binary/binaries into /usr/local/bin or fallback $HOME/bin
+// extractAndInstall extracts an archive file from 'src' into 'dest' directory,
+// then locates executable binaries and copies them to /usr/local/bin or ~/bin.
+// Returns the final installed binary path or an error.
 func extractAndInstall(src, dest string) (string, error) {
-	// Extract the archive to the destination
+	// First extract the archive file to the destination folder.
 	extractedPath, err := extractArchive(src, dest)
 	if err != nil {
+		// Return early if extraction fails.
 		return "", err
 	}
 
-	// Get Info about the extracted path
+	// Get file or directory info of the extracted path to check if it is a directory.
 	info, err := os.Stat(extractedPath)
 	if err != nil {
 		return "", err
 	}
 
-	// Infer tool name from source archive filename
+	// Deduce a likely tool name from the archive filename to help find binaries.
 	toolName := extractToolNameFromPath(src)
 
 	var binaries []string
-	// If extracted path is a directory, scan for binaries
 	if info.IsDir() {
+		// If extraction produced a directory, scan recursively for executables
+		// whose names start with the inferred toolName.
 		binaries, err = findExecutables(extractedPath, toolName)
 		if err != nil || len(binaries) == 0 {
 			return "", fmt.Errorf("no binary found in folder: %w", err)
 		}
 	} else {
-		// If it's a single file, assume it's the binary
+		// If extraction is a single file, assume that is the binary to install.
 		binaries = []string{extractedPath}
 	}
 
-	// Try to copy binaries to /usr/local/bin
+	// Attempt to copy each binary to /usr/local/bin (common executable path)
 	destination := "/usr/local/bin"
 	for _, binaryPath := range binaries {
 		if err := copyBinary(binaryPath, destination); err != nil {
-			// If /usr/local/bin fails, fallback to ~/bin
+			// If copying to /usr/local/bin fails (e.g. permission denied),
+			// fall back to copying to ~/bin directory, creating it if needed.
 			homeBin := filepath.Join(os.Getenv("HOME"), "bin")
 			if err := os.MkdirAll(homeBin, 0755); err != nil {
 				return "", fmt.Errorf("cannot create fallback bin directory: %w", err)
@@ -61,15 +66,17 @@ func extractAndInstall(src, dest string) (string, error) {
 		}
 	}
 
+	// Return full path to the first installed binary as the final installed tool path.
 	finalPath := filepath.Join(destination, filepath.Base(binaries[0]))
 	return finalPath, nil
 }
 
-// extractToolNameFromPath attempts to derive a reasonable tool name from a given archive path
+// extractToolNameFromPath attempts to guess a tool name based on archive filename,
+// stripping common archive extensions and splitting on delimiters.
 func extractToolNameFromPath(path string) string {
 	filename := filepath.Base(path)
 
-	// Strip known archive extensions
+	// Remove common archive extensions like .tar.gz, .zip, .7z to get base name.
 	for _, ext := range []string{".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".zip", ".7z"} {
 		if strings.HasSuffix(filename, ext) {
 			filename = strings.TrimSuffix(filename, ext)
@@ -77,7 +84,8 @@ func extractToolNameFromPath(path string) string {
 		}
 	}
 
-	// Split on delimiters like "-" or "_" and return the first part
+	// Split filename on dashes or underscores, often used as separators,
+	// and return the first part as the tool name.
 	parts := strings.FieldsFunc(filename, func(r rune) bool {
 		return r == '-' || r == '_'
 	})
@@ -85,10 +93,12 @@ func extractToolNameFromPath(path string) string {
 	if len(parts) > 0 {
 		return parts[0]
 	}
+	// Fallback to full filename if no delimiters found.
 	return filename
 }
 
-// extractArchive routes to appropriate extraction function based on archive type
+// extractArchive routes the archive file to the correct extraction function
+// depending on the file extension.
 func extractArchive(src, dest string) (string, error) {
 	switch {
 	case strings.HasSuffix(src, ".zip"):
@@ -102,20 +112,27 @@ func extractArchive(src, dest string) (string, error) {
 		config.Debug("[Debug] compression type is .tar.*\n")
 		return extractTarArchive(src, dest)
 	default:
+		// Unsupported archive type
 		return "", fmt.Errorf("unsupported archive format: %s\n", src)
 	}
 }
 
-// extractTarArchive handles tar and compressed tar variants
+// extractTarArchive handles extraction of tar archives and their compressed variants
+// including .tar.gz, .tgz, .tar.bz2, and .tar.xz
 func extractTarArchive(src, dest string) (string, error) {
 	config.Debug("[Debug] uncompressing  %s to %s\n", src, dest)
+
+	// Open the source archive file for reading.
 	f, err := os.Open(src)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
 
+	// Reader interface for reading decompressed data from the archive.
 	var reader io.Reader = f
+
+	// Detect compression type by file extension and wrap the reader accordingly.
 	switch {
 	case strings.HasSuffix(src, ".tar.gz"), strings.HasSuffix(src, ".tgz"):
 		gr, err := gzip.NewReader(f)
@@ -125,6 +142,7 @@ func extractTarArchive(src, dest string) (string, error) {
 		defer gr.Close()
 		reader = gr
 	case strings.HasSuffix(src, ".tar.bz2"):
+		// bzip2.NewReader does not require Close()
 		reader = bzip2.NewReader(f)
 	case strings.HasSuffix(src, ".tar.xz"):
 		xzr, err := xz.NewReader(f, 0)
@@ -134,20 +152,22 @@ func extractTarArchive(src, dest string) (string, error) {
 		reader = xzr
 	}
 
+	// Create a tar.Reader to iterate over files inside the tar archive.
 	tr := tar.NewReader(reader)
-	var topLevel string
 
-	// Iterate over each file in the archive
+	var topLevel string // To record top-level folder or file extracted
+
+	// Iterate through each file or directory in the tar archive.
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			break // End of archive
+			break // End of archive reached
 		}
 		if err != nil {
-			return "", err
+			return "", err // Error while reading archive
 		}
 
-		// Capture the top-level folder name
+		// On the first file, capture the top-level directory or file name
 		if topLevel == "" {
 			parts := strings.Split(hdr.Name, string(os.PathSeparator))
 			if len(parts) > 0 {
@@ -155,20 +175,26 @@ func extractTarArchive(src, dest string) (string, error) {
 			}
 		}
 
+		// Construct the full target path for extraction.
 		target := filepath.Join(dest, hdr.Name)
+
 		switch hdr.Typeflag {
 		case tar.TypeDir:
+			// Create directory with permissions 0755 (rwxr-xr-x)
 			if err := os.MkdirAll(target, 0755); err != nil {
 				return "", err
 			}
 		case tar.TypeReg:
+			// Create parent directories for file if needed.
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return "", err
 			}
+			// Create and open target file.
 			outFile, err := os.Create(target)
 			if err != nil {
 				return "", err
 			}
+			// Copy file contents from the tar archive to the file.
 			if _, err := io.Copy(outFile, tr); err != nil {
 				outFile.Close()
 				return "", err
@@ -176,11 +202,14 @@ func extractTarArchive(src, dest string) (string, error) {
 			outFile.Close()
 		}
 	}
+
+	// Return the full path of the extracted top-level folder or file.
 	return filepath.Join(dest, topLevel), nil
 }
 
-// extractZip extracts a .zip archive
+// extractZip extracts a .zip archive into the destination directory
 func extractZip(src, dest string) (string, error) {
+	// Open the zip archive for reading.
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return "", err
@@ -188,14 +217,21 @@ func extractZip(src, dest string) (string, error) {
 	defer r.Close()
 
 	var topLevel string
+
+	// Iterate over each file entry inside the zip archive.
 	for _, f := range r.File {
+		// Full path where this file will be extracted.
 		path := filepath.Join(dest, f.Name)
+
+		// Record the top-level folder name from first file entry.
 		if topLevel == "" {
 			parts := strings.Split(f.Name, "/")
 			if len(parts) > 0 {
 				topLevel = parts[0]
 			}
 		}
+
+		// If the entry is a directory, create it with permission 0755.
 		if f.FileInfo().IsDir() {
 			err := os.MkdirAll(path, 0755)
 			if err != nil {
@@ -203,30 +239,44 @@ func extractZip(src, dest string) (string, error) {
 			}
 			continue
 		}
+
+		// For files, create parent directories as needed.
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return "", err
 		}
+
+		// Open destination file for writing with the same permissions as original.
 		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 		if err != nil {
 			return "", err
 		}
+
+		// Open file inside zip for reading.
 		rc, err := f.Open()
 		if err != nil {
 			outFile.Close()
 			return "", err
 		}
+
+		// Copy file contents from zip entry to destination file.
 		_, err = io.Copy(outFile, rc)
+
+		// Close both files after copy is done.
 		rc.Close()
 		outFile.Close()
+
 		if err != nil {
 			return "", err
 		}
 	}
+
+	// Return the top-level folder extracted
 	return filepath.Join(dest, topLevel), nil
 }
 
-// extract7z handles .7z extraction using the sevenzip library
+// extract7z extracts .7z archives using the sevenzip library.
 func extract7z(src, dest string) (string, error) {
+	// Open the 7z archive for reading.
 	r, err := sevenzip.OpenReader(src)
 	if err != nil {
 		return "", fmt.Errorf("failed to open 7z archive: %w", err)
@@ -234,78 +284,105 @@ func extract7z(src, dest string) (string, error) {
 	defer r.Close()
 
 	var topLevel string
+
+	// Iterate over each file entry in the 7z archive.
 	for _, f := range r.File {
+		// Compute destination path.
 		path := filepath.Join(dest, f.Name)
+
+		// Capture top-level folder name from first file.
 		if topLevel == "" {
 			parts := strings.Split(f.Name, string(os.PathSeparator))
 			if len(parts) > 0 {
 				topLevel = parts[0]
 			}
 		}
+
 		if f.FileInfo().IsDir() {
+			// Create directory with original file permissions.
 			os.MkdirAll(path, f.Mode())
 			continue
 		}
+
+		// Ensure parent directory exists.
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return "", err
 		}
+
+		// Open file inside the archive for reading.
 		rc, err := f.Open()
 		if err != nil {
 			return "", err
 		}
+
+		// Create destination file.
 		outFile, err := os.Create(path)
 		if err != nil {
 			rc.Close()
 			return "", err
 		}
+
+		// Copy contents from archive file to destination file.
 		_, err = io.Copy(outFile, rc)
+
+		// Close both files.
 		rc.Close()
 		outFile.Close()
+
 		if err != nil {
 			return "", err
 		}
 	}
+
+	// Return extracted top-level folder or file path.
 	return filepath.Join(dest, topLevel), nil
 }
 
-// findExecutables scans a directory tree and returns all executable files matching the tool name
+// findExecutables searches a directory tree for executable files whose names
+// start with the given toolName. Uses both file permission checks and the 'file' command as fallback.
 func findExecutables(root string, toolName string) ([]string, error) {
 	config.Debug("[DEBUG] Scanning directory for executables: %s", root)
 	var executables []string
 
+	// WalkDir walks the file tree rooted at root.
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			config.Debug("[DEBUG] WalkDir Error: %v", err)
 			return err
 		}
+		// Skip directories as they are not executables.
 		if d.IsDir() {
 			return nil
 		}
+
+		// Get detailed file info for mode checks.
 		info, err := d.Info()
 		if err != nil {
 			config.Debug("[DEBUG] Failed to get file Info for %s: %v", path, err)
-			return nil
+			return nil // Continue walking despite error
 		}
 		mode := info.Mode()
 		filename := filepath.Base(path)
 
-		// Skip if filename doesn't start with toolName
+		// Skip files that don't start with the toolName prefix.
 		if !strings.HasPrefix(filename, toolName) {
 			return nil
 		}
 
-		// Check if it’s executable based on permissions
+		// Check if file is a regular file and has any executable bit set.
 		if mode.IsRegular() && (mode.Perm()&0111 != 0 || strings.HasPrefix(mode.String(), "-rwx")) {
 			config.Debug("[DEBUG] Found executable (perm): %s", path)
 			executables = append(executables, path)
 			return nil
 		}
 
-		// Fallback: use `file` command to determine if it’s executable
+		// Fallback: use system 'file' command to detect executable type.
 		out, err := exec.Command("file", "--brief", path).Output()
 		if err != nil {
+			// If 'file' command fails, ignore this file and continue.
 			return nil
 		}
+
 		output := strings.ToLower(string(out))
 		if strings.Contains(output, "executable") || strings.Contains(output, "mach-o") || strings.Contains(output, "elf") {
 			config.Debug("[DEBUG] Found executable via file command: %s", path)
@@ -317,27 +394,36 @@ func findExecutables(root string, toolName string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Return error if no executables found at all.
 	if len(executables) == 0 {
 		return nil, fmt.Errorf("no executables found in %s", root)
 	}
+
 	return executables, nil
 }
 
-// copyBinary copies a file to a target directory with executable permissions
+// copyBinary copies a file from src to dstDir, preserving filename, and
+// sets executable permissions (0755) on the copied file.
 func copyBinary(src, dstDir string) error {
+	// Destination file path
 	dst := filepath.Join(dstDir, filepath.Base(src))
+
+	// Open source file for reading.
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
 
+	// Open (or create) destination file for writing with 0755 permissions.
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
+	// Copy contents from source file to destination file.
 	_, err = io.Copy(out, in)
 	return err
 }

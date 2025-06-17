@@ -12,55 +12,79 @@ import (
 	"sync"
 )
 
-// SyncTools synchronizes the installed tools with the desired config and current state.
-// It installs new tools, upgrades outdated tools, and removes tools no longer in the config.
+// SyncTools synchronizes the tools installed on the system with the desired
+// tool configuration and the current state.
+// It installs new tools, upgrades tools with version mismatch, and removes
+// tools that no longer appear in the config.
 func SyncTools(tools []config.Tool, st *config.State) {
+	// Debug log: Starting SyncTools with counts of desired tools and current known state tools
 	config.Debug("[DEBUG] Starting SyncTools with %d tools, current state has %d entries\n", len(tools), len(st.Tools))
 
+	// Track which tools exist in the new config to compare for removal later
 	existing := make(map[string]bool)
+
+	// Mutex to protect concurrent writes to shared state struct
 	var mu sync.Mutex
+	// WaitGroup to wait for all concurrent installs/upgrades to complete before continuing
 	var wg sync.WaitGroup
 
-	// Use concurrency for installation/upgrades
+	// Iterate over all tools defined in the config
 	for _, tool := range tools {
+		// Mark tool as existing in the config
 		existing[tool.Name] = true
 
+		// Retrieve current tool state from the statefile (if any)
 		curToolState, ok := st.Tools[tool.Name]
+
+		// If tool is new (not in state) OR version mismatch => install or upgrade
 		if !ok || curToolState.Version != tool.Version {
-			wg.Add(1)
+			wg.Add(1) // Add a goroutine to WaitGroup
+
+			// Launch concurrent goroutine for installing/upgrading this tool
 			go func(tool config.Tool, curToolState config.ToolState, exists bool) {
-				defer wg.Done()
+				defer wg.Done() // Signal WaitGroup on goroutine exit
+
+				// Debug log: Inform which tool is being installed/upgraded, with versions
 				config.Debug("[DEBUG] SyncTools: Installing/upgrading %s (current: %s, target: %s)\n",
 					tool.Name, curToolState.Version, tool.Version)
 
+				// Call installTool which returns success flag and installation path
 				success, installPath := installTool(tool)
 				if success {
+					// Log success info
 					config.Info("[INFO] Installed %s@%s\n", tool.Name, tool.Version)
 
-					// Protect state update with a mutex
+					// Lock mutex before updating shared state
 					mu.Lock()
 					st.Tools[tool.Name] = config.ToolState{
 						Version:             tool.Version,
 						InstallPath:         installPath,
-						InstalledByDevSetup: true,
+						InstalledByDevSetup: true, // Mark as installed by this tool
 					}
-					mu.Unlock()
+					mu.Unlock() // Unlock mutex after update
 				} else {
+					// Log error on install failure
 					config.Error("[ERROR] Failed to install %s@%s\n", tool.Name, tool.Version)
 				}
 			}(tool, curToolState, ok)
 		} else {
+			// Tool already installed with correct version, skip installation
 			config.Debug("[DEBUG] SyncTools: %s version %s is already current.\n", tool.Name, tool.Version)
 			config.Info("[INFO] %s version %s is current. Skipping.\n", tool.Name, tool.Version)
 		}
 	}
 
-	wg.Wait() // Wait for all installs to complete
+	// Wait for all install/upgrade goroutines to complete before proceeding
+	wg.Wait()
 
-	// Sequential removal to avoid conflicts with state modifications
+	// After install/upgrade, remove any tools in state that are not in config anymore
+	// We do this sequentially to avoid concurrent map modification issues
 	for name, toolState := range st.Tools {
+		// If tool name not in the current config, uninstall it
 		if !existing[name] {
 			config.Warn("[WARN] %s removed from config. Uninstalling...\n", name)
+
+			// Attempt uninstall; if successful, delete from state; else log warning
 			if uninstallTool(name, toolState) {
 				delete(st.Tools, name)
 			} else {
@@ -69,28 +93,29 @@ func SyncTools(tools []config.Tool, st *config.State) {
 		}
 	}
 
+	// Debug log marking completion of SyncTools
 	config.Debug("[DEBUG] Finished SyncTools\n")
 }
 
 // SyncSettings applies macOS user defaults settings from the config,
-// and updates the state file with applied settings to avoid redundant changes.
+// and updates the state file with applied settings to avoid redundant changes on next runs.
 func SyncSettings(settings []config.Setting, st *config.State) {
-	// Iterate over each desired setting from config
+	// Iterate over each desired macOS setting in the config
 	for _, s := range settings {
-		// Compose a unique key to identify each setting (domain:key)
+		// Compose a unique key to identify setting in the form domain:key
 		key := fmt.Sprintf("%s:%s", s.Domain, s.Key)
 
-		// Log the setting being considered with its value and type
+		// Debug log about setting being considered with its type and value
 		config.Debug("[DEBUG] Considering setting %s = %s (%s)\n", key, s.Value, s.Type)
 
-		// Check if this setting is already applied with the same value in the state file
+		// Check if setting is already applied (exists in state with same value)
 		if prev, ok := st.Settings[key]; ok && prev.Value == s.Value {
-			// If yes, skip re-applying the setting for efficiency
+			// Skip applying the setting again to save time
 			config.Info("[INFO] Skipping already applied setting %s = %s\n", key, s.Value)
 			continue
 		}
 
-		// Build the arguments for the `defaults write` command based on setting type
+		// Build arguments for the 'defaults write' command according to setting type
 		args := []string{"write", s.Domain, s.Key}
 		switch s.Type {
 		case "bool":
@@ -100,23 +125,24 @@ func SyncSettings(settings []config.Setting, st *config.State) {
 		case "float":
 			args = append(args, "-float", s.Value)
 		default:
-			// Default to string type if none of the above
+			// Default to string type if type is unknown
 			args = append(args, "-string", s.Value)
 		}
 
-		// Execute the defaults command with constructed arguments
+		// Execute the 'defaults' command with constructed args to apply setting
 		cmd := exec.Command("defaults", args...)
-		output, err := cmd.CombinedOutput()
+		output, err := cmd.CombinedOutput() // Capture output and error
+
 		if err != nil {
-			// Log Error if the setting application failed along with command output
+			// Log error along with command output on failure
 			config.Error("[ERROR] Failed to apply setting %s: %v\nOutput: %s\n", key, err, output)
 			continue
 		}
 
-		// Log successful setting application
+		// Log success message after applying setting
 		config.Info("[INFO] Applied setting: %s = %s\n", key, s.Value)
 
-		// Update the state file with this newly applied setting
+		// Update the state file to reflect the applied setting and avoid re-applying next time
 		st.Settings[key] = config.SettingState{
 			Domain: s.Domain,
 			Key:    s.Key,
@@ -125,38 +151,38 @@ func SyncSettings(settings []config.Setting, st *config.State) {
 	}
 }
 
-// SyncAliases ensures shell aliases from the config are added to the user's shell rc file.
-// It avoids duplicate entries by checking existing aliases first.
+// SyncAliases ensures shell aliases from the config are appended to the user's
+// shell RC file, avoiding duplicates by checking existing aliases first.
 func SyncAliases(aliases config.Aliases) {
-	// Get current user Info for home directory and rc file path
+	// Retrieve current user info (mainly for home directory path)
 	usr, err := user.Current()
 	if err != nil {
 		config.Error("[ERROR] Failed to get current user: %v\n", err)
 		return
 	}
 
-	// Determine which shell to use for aliasing; default to detected shell if empty
+	// Determine which shell to target; default to detected shell if empty
 	shell := aliases.Shell
 	if shell == "" {
 		shell = detectShell()
 	}
 	config.Debug("[DEBUG] Using shell '%s' for aliases\n", shell)
 
-	// Map supported shells to their rc file names
+	// Map of common shell names to their rc filenames
 	shellrcMap := map[string]string{
 		"zsh":  ".zshrc",
 		"bash": ".bashrc",
 	}
+	// Determine rc file name for shell, fallback to .zshrc if unknown
 	shellrc, ok := shellrcMap[shell]
 	if !ok {
-		// If shell unknown, Warn and default to .zshrc
 		config.Warn("[WARN] Unknown shell '%s', defaulting to '.zshrc'\n", shell)
 		shellrc = ".zshrc"
 	}
-	// Construct full path to shell rc file
+	// Full path to the rc file
 	rcPath := filepath.Join(usr.HomeDir, shellrc)
 
-	// Read existing lines from the rc file to avoid duplicates
+	// Read existing lines from rc file into a map to avoid duplicate alias insertion
 	existing := make(map[string]bool)
 	if f, err := os.Open(rcPath); err == nil {
 		scanner := bufio.NewScanner(f)
@@ -173,6 +199,7 @@ func SyncAliases(aliases config.Aliases) {
 		config.Error("[ERROR] Unable to open file %s for appending: %v\n", rcPath, err)
 		return
 	}
+	// Ensure file gets closed properly after function returns
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
@@ -180,15 +207,18 @@ func SyncAliases(aliases config.Aliases) {
 		}
 	}(file)
 
-	// Write raw configs if provided
+	// Write raw config lines (if any) line-by-line after trimming
 	for _, raw := range aliases.RawConfigs {
+		// Some raw configs may have multiple lines separated by newlines
 		lines := strings.Split(raw, "\n")
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" || existing[trimmed] {
+				// Skip empty or duplicate lines
 				config.Debug("[DEBUG] Raw config already exists or is empty: %s\n", trimmed)
 				continue
 			}
+			// Write line to rc file
 			if _, err := file.WriteString(trimmed + "\n"); err != nil {
 				config.Error("[ERROR] Failed to write raw config line: %s: %v\n", trimmed, err)
 			} else {
@@ -198,63 +228,67 @@ func SyncAliases(aliases config.Aliases) {
 		}
 	}
 
-	// Iterate over all aliases defined in config
+	// Iterate over all alias entries from config and add them if missing
 	for _, a := range aliases.Entries {
-		// Format alias command string e.g. alias gs="git status"
+		// Format alias string e.g. alias gs="git status"
 		aliasCmd := fmt.Sprintf("alias %s=\"%s\"", a.Name, a.Value)
 
-		// Skip if alias already exists in rc file
+		// Skip alias if it already exists in the rc file
 		if existing[aliasCmd] {
 			config.Debug("[DEBUG] Alias already exists: %s\n", aliasCmd)
 			continue
 		}
 
-		// Write new alias line to rc file
+		// Write the alias command line to the rc file
 		if _, err := file.WriteString(aliasCmd + "\n"); err != nil {
-			// Log failure to write alias
 			config.Error("[ERROR] Failed to write alias '%s': %v\n", aliasCmd, err)
 		} else {
-			// Log successful alias addition
 			config.Info("[INFO] Added alias: %s\n", aliasCmd)
 			existing[aliasCmd] = true
 		}
 	}
 }
 
+// SyncFonts installs, updates, and uninstalls fonts as per the config and state.
+// It supports fonts sourced from GitHub releases currently.
 func SyncFonts(fonts []config.Font, st *config.State) {
-	// Track fonts defined in the current config
+	// Track fonts defined in the current config for later removal of stale fonts
 	configuredFonts := map[string]struct{}{}
 
+	// Iterate over all fonts declared in the config
 	for _, font := range fonts {
-		// Currently only GitHub is supported
+		// Support only GitHub source currently; log warning for others
 		if font.Source != "github" {
 			config.Warn("[WARN] Unsupported font source for %s: %s\n", font.Name, font.Source)
 			continue
 		}
 
-		// Construct download URL for GitHub release asset
+		// Construct the URL for the font zip archive from GitHub releases
 		url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s.zip", font.Repo, font.Tag, font.Name)
+
+		// Mark font as configured for tracking
 		configuredFonts[font.Name] = struct{}{}
 
-		// Skip install if font is already installed with the same URL
+		// Skip installation if font already installed at this URL (no changes)
 		if existing, ok := st.Fonts[font.Name]; ok && existing.URL == url {
 			config.Info("[INFO] Skipping already installed font: %s\n", font.Name)
 			continue
 		}
 
-		// Proceed with font installation
+		// Proceed to install the font by downloading and extracting
 		files, err := installFont(font.Name, url)
 		if err != nil {
 			config.Error("[ERROR] Failed to install font %s: %v\n", font.Name, err)
 			continue
 		}
 
+		// Warn if no 'Regular' font files found and skip state update
 		if len(files) == 0 {
 			config.Warn("[WARN] No Regular fonts installed for %s, skipping state update\n", font.Name)
 			continue
 		}
 
-		// Save installed font info to state
+		// Update state with newly installed font info (name, URL, files)
 		st.Fonts[font.Name] = config.FontState{
 			Name:  font.Name,
 			URL:   url,
@@ -263,7 +297,7 @@ func SyncFonts(fonts []config.Font, st *config.State) {
 		config.Info("[INFO] Installed font: %s\n", font.Name)
 	}
 
-	// Uninstall fonts from state that are not in the current config
+	// Uninstall fonts no longer present in the config by comparing to state
 	for name, fontState := range st.Fonts {
 		if _, found := configuredFonts[name]; !found {
 			config.Info("[INFO] Font %s no longer in config. Uninstalling...\n", name)
