@@ -26,7 +26,7 @@ func installTool(tool config.Tool) (bool, string) {
 	// GitHub installation: download from GitHub releases/assets.
 	case "github":
 		config.Info("[INFO] Installing %s@%s from GitHub...\n", tool.Name, tool.Version)
-		installPath, err = downloadFromGitHub(tool) // handles downloading and extracting
+		installPath, err = downloadToolsFromGitHub(tool) // handles downloading and extracting
 		if err != nil {
 			config.Error("[ERROR] Failed to install %s from GitHub: %v\n", tool.Name, err)
 			return false, ""
@@ -246,7 +246,7 @@ func installFont(fontName, url string) ([]string, error) {
 			dst := filepath.Join(fontDir, info.Name())
 
 			// Copy the font file from extraction folder to Fonts directory.
-			if copyErr := copyFile(path, dst); copyErr != nil {
+			if copyErr := copyFile(path, dst, 0); copyErr != nil {
 				config.Warn("[WARN] Failed to copy %s to %s: %v\n", path, dst, copyErr)
 				return nil // continue with other files despite error
 			}

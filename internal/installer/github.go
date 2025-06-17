@@ -11,10 +11,10 @@ import (
 	"strings"
 )
 
-// downloadFromGitHub downloads a specific version of a tool from GitHub Releases.
+// downloadToolsFromGitHub downloads a specific version of a tool from GitHub Releases.
 // It locates the asset matching the OS/Arch, downloads it, extracts the archive,
 // finds the executable, installs it, and returns the installed path.
-func downloadFromGitHub(tool config.Tool) (string, error) {
+func downloadToolsFromGitHub(tool config.Tool) (string, error) {
 	// Determine the GitHub repository and tag
 	repo := tool.Name
 	tag := "v" + tool.Version
