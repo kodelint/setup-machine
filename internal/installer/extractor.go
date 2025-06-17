@@ -51,18 +51,25 @@ func extractAndInstall(src, dest string) (string, error) {
 
 	// Attempt to copy each binary to /usr/local/bin (common executable path)
 	destination := "/usr/local/bin"
+
 	for _, binaryPath := range binaries {
-		if err := copyBinary(binaryPath, destination); err != nil {
-			// If copying to /usr/local/bin fails (e.g. permission denied),
-			// fall back to copying to ~/bin directory, creating it if needed.
+		dstPath := filepath.Join(destination, filepath.Base(binaryPath))
+
+		// Attempt to copy with mode override set to 0755
+		if err := copyFile(binaryPath, dstPath, 0755); err != nil {
+			config.Warn("[WARN] Primary copy failed (%s): %v. Falling back to ~/bin\n", dstPath, err)
+
+			// Fallback to $HOME/bin
 			homeBin := filepath.Join(os.Getenv("HOME"), "bin")
 			if err := os.MkdirAll(homeBin, 0755); err != nil {
 				return "", fmt.Errorf("cannot create fallback bin directory: %w", err)
 			}
-			destination = homeBin
-			if err := copyBinary(binaryPath, homeBin); err != nil {
+			dstPath = filepath.Join(homeBin, filepath.Base(binaryPath))
+
+			if err := copyFile(binaryPath, dstPath, 0755); err != nil {
 				return "", fmt.Errorf("failed to copy binary to fallback location: %w", err)
 			}
+			destination = homeBin
 		}
 	}
 
@@ -401,29 +408,4 @@ func findExecutables(root string, toolName string) ([]string, error) {
 	}
 
 	return executables, nil
-}
-
-// copyBinary copies a file from src to dstDir, preserving filename, and
-// sets executable permissions (0755) on the copied file.
-func copyBinary(src, dstDir string) error {
-	// Destination file path
-	dst := filepath.Join(dstDir, filepath.Base(src))
-
-	// Open source file for reading.
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	// Open (or create) destination file for writing with 0755 permissions.
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	// Copy contents from source file to destination file.
-	_, err = io.Copy(out, in)
-	return err
 }

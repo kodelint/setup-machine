@@ -102,28 +102,25 @@ func globbingMatches(matches []string) bool {
 // copyFile copies a file from src to dst, preserving permissions.
 // It creates any missing directories in the destination path.
 // Returns an error if any step in the process fails.
-func copyFile(src, dst string) error {
-	// Open the source file for reading
+
+func copyFile(src, dst string, modeOverride os.FileMode) error {
+	// Open the source file
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open source failed: %w", err)
 	}
-	// Ensure the source file is closed after copying completes
 	defer in.Close()
 
-	// Ensure the directory of the destination path exists,
-	// creating it with permission 0755 if needed.
+	// Ensure the destination directory exists
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return fmt.Errorf("mkdir failed: %w", err)
 	}
 
-	// Create or truncate the destination file
+	// Create the destination file with write permission (mode doesn't matter yet)
 	out, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create target failed: %w", err)
 	}
-	// Use a deferred anonymous function to close the destination file,
-	// capturing any errors on close and assigning it to err if not already set.
 	defer func() {
 		cerr := out.Close()
 		if err == nil {
@@ -131,16 +128,16 @@ func copyFile(src, dst string) error {
 		}
 	}()
 
-	// Copy all data from source file to destination file
+	// Copy contents
 	if _, err := io.Copy(out, in); err != nil {
 		return fmt.Errorf("copy failed: %w", err)
 	}
 
-	// Retrieve the source file's permission mode to replicate it
-	if stat, err := os.Stat(src); err == nil {
-		// Apply the source file's permissions to the destination file
-		_ = os.Chmod(dst, stat.Mode())
+	// Set permissions: use override if provided, otherwise preserve source mode
+	if modeOverride != 0 {
+		err = os.Chmod(dst, modeOverride)
+	} else if stat, err2 := os.Stat(src); err2 == nil {
+		err = os.Chmod(dst, stat.Mode())
 	}
-
-	return nil // Return nil error on success
+	return err
 }
